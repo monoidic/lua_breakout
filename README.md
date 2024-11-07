@@ -11,7 +11,9 @@ Variants:
 
 The GOT overwrite method requires Lua to be compiled with `-Wl,-z,norelro -no-pie` as well as `-DLUA_COMPAT_5_3` (or `-DLUA_COMPAT_MATHLIB`).
 
-`-Wl,z,norelro` is required in order to disable RELRO and make GOT modification possible. `-no-pie` is required to ensure the heap is within the 32-bit address space, as the address is passed to `ldexp` in `EDI` and hence truncated to 32 bits. Unneeded under 32-bit builds.
+`-Wl,z,norelro` is required in order to disable RELRO and make GOT modification possible.
+
+`-no-pie` is required to ensure the heap is within the 32-bit address space, as the address is passed to `ldexp` in `EDI` and hence truncated to 32 bits. Unneeded under 32-bit builds.
 
 `-DLUA_COMPAT_5_3` (or `-DLUA_COMPAT_MATHLIB`) is required to ensure the now-deprecated `math.ldexp` function is still available in the interpreter.
 
