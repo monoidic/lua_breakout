@@ -1,6 +1,6 @@
 # Lua Breakout
 
-`gen_payload.sh` generates a Lua script `payload.lua` which uses either ROP or a GOT overwrite to perform a local `system()` call in the context of the Lua interpreter running the script. Mostly based on the excellent aticle [Bytecode Breakdown](https://memorycorruption.net/posts/rce-lua-factorio).
+`gen_payload.sh` generates a Lua script `payload.lua` which uses either ROP or a GOT overwrite to perform a local `system()` call in the context of the Lua interpreter running the script. Mostly based on the excellent article [Bytecode Breakdown](https://memorycorruption.net/posts/rce-lua-factorio).
 
 Only tested on Lua 5.4.7, Ubuntu Linux 24.04, 64-bit and 32-bit x86, with static and dynamic linking.
 
